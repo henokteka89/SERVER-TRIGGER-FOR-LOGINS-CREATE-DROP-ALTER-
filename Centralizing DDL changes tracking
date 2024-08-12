@@ -1,0 +1,89 @@
+Step 1: Create a Centralized Logging Table
+Create a table in a central database (this could be on your prod server or a dedicated monitoring server) to store the DDL changes:
+
+CREATE TABLE CentralDB.dbo.DDLChangeLog (
+    LogID INT IDENTITY(1,1) PRIMARY KEY,
+    ServerName NVARCHAR(128),
+    DBID INT,
+    DBName NVARCHAR(128),
+    CreateTime DATETIME,
+    DBUser NVARCHAR(128),
+    Event NVARCHAR(50),
+    ObjectName NVARCHAR(128),
+    HostName NVARCHAR(128),
+    OriginalCommand NVARCHAR(MAX)
+);
+
+Step 2: Set Up DDL Triggers on Each Database
+For each database on each server, create a DDL trigger that logs changes to the centralized table. Here is an example for one database:
+
+CREATE TRIGGER DDL_Log_Trigger
+ON DATABASE
+FOR ALTER_TABLE, ALTER_VIEW, DROP_TABLE, DROP_VIEW, CREATE_TABLE, CREATE_VIEW
+AS
+BEGIN
+    DECLARE @EventData XML = EVENTDATA();
+    INSERT INTO CentralDB.dbo.DDLChangeLog
+    (
+        ServerName,
+        DBID,
+        DBName,
+        CreateTime,
+        DBUser,
+        Event,
+        ObjectName,
+        HostName,
+        OriginalCommand
+    )
+    SELECT
+        @@SERVERNAME,
+        DB_ID(),
+        DB_NAME(),
+        GETDATE(),
+        @EventData.value('(/EVENT_INSTANCE/UserName)[1]', 'NVARCHAR(128)'),
+        @EventData.value('(/EVENT_INSTANCE/EventType)[1]', 'NVARCHAR(50)'),
+        @EventData.value('(/EVENT_INSTANCE/ObjectName)[1]', 'NVARCHAR(128)'),
+        HOST_NAME(),
+        @EventData.value('(/EVENT_INSTANCE/TSQLCommand)[1]', 'NVARCHAR(MAX)');
+END;
+GO
+
+Step 3: Create a Scheduled Job to Run Daily
+Set up a SQL Server Agent job on the central server to run daily at 4 PM. The job should perform the following steps:
+
+Query the Centralized Table: Gather the DDL change logs from the day.
+
+DECLARE @ReportDate DATE = CAST(GETDATE() AS DATE);
+DECLARE @EmailBody NVARCHAR(MAX);
+
+SELECT @EmailBody = ISNULL(@EmailBody + '<br/>', '') + 
+    '<tr><td>' + CAST(DBID AS NVARCHAR(10)) + '</td>' +
+    '<td>' + DBName + '</td>' +
+    '<td>' + CAST(CreateTime AS NVARCHAR(30)) + '</td>' +
+    '<td>' + DBUser + '</td>' +
+    '<td>' + Event + '</td>' +
+    '<td>' + ObjectName + '</td>' +
+    '<td>' + HostName + '</td>' +
+    '</tr>'
+FROM CentralDB.dbo.DDLChangeLog
+WHERE CAST(CreateTime AS DATE) = @ReportDate;
+
+SET @EmailBody = '<html><body>' +
+    '<h2>DDL Changes Report - ' + CAST(@ReportDate AS NVARCHAR(30)) + '</h2>' +
+    '<table border="1" cellpadding="5" cellspacing="0">' +
+    '<tr><th>DBID</th><th>DBName</th><th>CreateTime</th><th>DBUser</th><th>Event</th><th>ObjectName</th><th>HostName</th></tr>' +
+    @EmailBody + '</table></body></html>';
+
+Send the Email: Use sp_send_dbmail to send the report.
+
+EXEC msdb.dbo.sp_send_dbmail
+    @profile_name = 'YourMailProfile',  -- Replace with your mail profile
+    @recipients = 'your.email@example.com',  -- Replace with your email
+    @subject = 'Daily DDL Changes Report',
+    @body = @EmailBody,
+    @body_format = 'HTML';
+
+Step 4: Implement Across All Servers
+Deploy the Centralized Logging Table: Ensure the centralized logging table is accessible from all environments.
+Deploy the DDL Triggers: Set up the DDL triggers on each database across all environments (prod, dev, test, staging).
+Set Up Linked Servers: If the centralized logging table is on a different server, ensure linked servers are set up and permissions are configured.
