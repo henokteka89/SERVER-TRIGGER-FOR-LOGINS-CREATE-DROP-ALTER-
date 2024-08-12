@@ -1,14 +1,15 @@
 USE ADMIN;  -- Replace with your database name
 GO
-
  
-
-Create TRIGGER DDL_SecurityAuditTrigger
+CREATE TRIGGER DDL_SecurityAuditTrigger
 ON DATABASE
 FOR 
     CREATE_ROLE, 
     ALTER_ROLE, 
     DROP_ROLE, 
+    CREATE_USER, 
+    ALTER_USER, 
+    DROP_USER,
     GRANT_DATABASE, 
     DENY_DATABASE, 
     REVOKE_DATABASE,
@@ -41,13 +42,14 @@ BEGIN
 
     DECLARE @title NVARCHAR(500) = 'Security-Related DDL Event Detected: ' + @EventType;
 
+ 
     
 
 
     -- Send an email notification
     EXEC msdb.dbo.sp_send_dbmail
         @profile_name = 'default',
-        @recipients = 'abc@YAHOO.com',  -- Replace with your email
+        @recipients = 'ABC@YAHOO.com',  -- Replace with your email
         @subject = @title,
         @body = @Body,
         @body_format = 'HTML';  -- Ensure the body is sent as HTML
