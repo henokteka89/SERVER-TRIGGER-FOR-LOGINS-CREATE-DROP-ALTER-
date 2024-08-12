@@ -1,0 +1,55 @@
+USE ADMIN;  -- Replace with your database name
+GO
+
+ 
+
+Create TRIGGER DDL_SecurityAuditTrigger
+ON DATABASE
+FOR 
+    CREATE_ROLE, 
+    ALTER_ROLE, 
+    DROP_ROLE, 
+    GRANT_DATABASE, 
+    DENY_DATABASE, 
+    REVOKE_DATABASE,
+    ADD_ROLE_MEMBER,
+    DROP_ROLE_MEMBER
+AS
+BEGIN
+    DECLARE @EventData XML;
+    SET @EventData = EVENTDATA();
+
+    DECLARE @EventType NVARCHAR(100) = @EventData.value('(/EVENT_INSTANCE/EventType)[1]', 'NVARCHAR(100)');
+    DECLARE @ObjectName NVARCHAR(256) = @EventData.value('(/EVENT_INSTANCE/ObjectName)[1]', 'NVARCHAR(256)');
+    DECLARE @ObjectType NVARCHAR(100) = @EventData.value('(/EVENT_INSTANCE/ObjectType)[1]', 'NVARCHAR(100)');
+    DECLARE @TSQLCommand NVARCHAR(MAX) = @EventData.value('(/EVENT_INSTANCE/TSQLCommand)[1]', 'NVARCHAR(MAX)');
+    DECLARE @LoginName NVARCHAR(100) = @EventData.value('(/EVENT_INSTANCE/LoginName)[1]', 'NVARCHAR(100)');
+    DECLARE @PostTime NVARCHAR(100) = @EventData.value('(/EVENT_INSTANCE/PostTime)[1]', 'NVARCHAR(100)');
+
+    -- Construct the HTML email body with key information
+    DECLARE @Body NVARCHAR(MAX);
+    SET @Body = 
+        '<html>' +
+        '<body>' +
+        '<h3><strong>Security-Related DDL Event Detected</strong></h3>' +
+        '<table border="1" cellpadding="5" cellspacing="0">' +
+        '<tr><th align="left"><strong>Event Type</strong></th><th align="left"><strong>Object Name</strong></th><th align="left"><strong>Object Type</strong></th><th align="left"><strong>Login Name</strong></th><th align="left"><strong>Post Time</strong></th><th align="left"><strong>T-SQL Command</strong></th></tr>' +
+        '<tr><td>' + @EventType + '</td><td>' + @ObjectName + '</td><td>' + @ObjectType + '</td><td>' + @LoginName + '</td><td>' + @PostTime + '</td><td><pre>' + @TSQLCommand + '</pre></td></tr>' +
+        '</table>' +
+        '</body>' +
+        '</html>';
+
+    DECLARE @title NVARCHAR(500) = 'Security-Related DDL Event Detected: ' + @EventType;
+
+    
+
+
+    -- Send an email notification
+    EXEC msdb.dbo.sp_send_dbmail
+        @profile_name = 'default',
+        @recipients = 'abc@YAHOO.com',  -- Replace with your email
+        @subject = @title,
+        @body = @Body,
+        @body_format = 'HTML';  -- Ensure the body is sent as HTML
+END;
+GO
